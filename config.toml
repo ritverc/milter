@@ -12,6 +12,11 @@
 #     spam_score_increase  : how much to add to the spam score
 #     subject_prefix       : optional prefix prepended to Subject
 #
+# NOTE: when [milter].strip_existing_prefixes is enabled (default), any
+# subject_prefix already present at the start of the Subject is removed
+# before the new prefix is added, so re-processed messages never accumulate
+# duplicate prefixes.
+#
 # Triggers can be combined into groups with mode:
 #   "all"      — all listed triggers must fire
 #   "any"      — at least one trigger must fire
@@ -30,7 +35,14 @@ socket = "inet:11334@127.0.0.1"   # listen address (inet / unix socket)
 name   = "amavis-milter"          # milter name reported to MTA
 timeout = 300                     # per-connection timeout (seconds)
 pid_file = "/opt/zimbra/log/milter.pid"  # PID file path (set to "" to disable)
-
+# When a message is processed more than once (re-injection, forwarding back
+# through the milter, etc.) the subject_prefix values added by triggers/groups
+# would otherwise pile up, e.g. "[FAKE-REPLY] [FAKE-REPLY] Hello".
+# When enabled, every known subject_prefix declared by ANY trigger or group
+# (enabled or not) that already leads the Subject is stripped BEFORE the new
+# combined prefix is prepended, so the Subject always reflects the current
+# rule evaluation and never accumulates duplicates.
+strip_existing_prefixes = true
 
 # ---------------------------------------------------------------------------
 # RDAP client settings

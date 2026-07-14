@@ -105,6 +105,11 @@ class MilterConfig:
     name: str = "amavis-milter"
     timeout: int = 300
     pid_file: str = "/opt/zimbra/log/milter.pid"
+    # When True, any known subject_prefix (defined by any trigger or group in
+    # the config) that already leads the Subject is stripped before the new
+    # combined prefix is prepended. Prevents duplicate prefixes piling up when
+    # a message is re-processed by the milter.
+    strip_existing_prefixes: bool = True
 
 
 @dataclass
@@ -176,6 +181,7 @@ def load_config(path: str | Path) -> AppConfig:
         name=raw_milter.get("name", "amavis-milter"),
         timeout=raw_milter.get("timeout", 300),
         pid_file=raw_milter.get("pid_file", "/opt/zimbra/log/milter.pid"),
+        strip_existing_prefixes=bool(raw_milter.get("strip_existing_prefixes", True)),
     )
 
     # --- rdap section ---

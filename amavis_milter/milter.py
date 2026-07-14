@@ -269,6 +269,13 @@ def _create_milter_class() -> type:
               1. Add X-header
               2. Increase spam score (via X-Spam-Score header)
               3. Optionally add subject prefix
+
+            When ``milter.strip_existing_prefixes`` is enabled (default), any
+            known subject prefixes that already lead the Subject are removed
+            before the new combined prefix is prepended. This keeps the
+            Subject in sync with the current rule evaluation and prevents
+            duplicates such as ``[FAKE-REPLY] [FAKE-REPLY] Hello`` when a
+            message is processed by the milter more than once.
             """
             if not self._fired_actions:
                 return Milter.CONTINUE
@@ -307,11 +314,22 @@ def _create_milter_class() -> type:
 
             # 3. Subject prefix
             prefix = engine.get_subject_prefix(self._fired_actions)
-            if prefix and self._subject:
-                new_subject = f"{prefix} {self._subject}"
+            # Strip any pre-existing known prefixes so re-processing does not
+            # stack duplicates and the Subject reflects the current evaluation.
+            new_subject = engine.strip_known_prefixes(self._subject)
+            subject_changed = new_subject != self._subject
+
+            if prefix:
+                # Prepend the new combined prefix to the (cleaned) subject.
+                new_subject = (
+                    f"{prefix} {new_subject}" if new_subject else prefix
+                )
+                subject_changed = True
+
+            if subject_changed:
                 self.chgheader("Subject", 1, new_subject)
                 logger.info(
-                    "Subject prefixed: %s → %s",
+                    "Subject updated: %r → %r",
                     self._subject, new_subject,
                 )
 

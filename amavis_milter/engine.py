@@ -10,9 +10,10 @@ The engine:
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+import re
+from dataclasses import dataclass
 from email.message import Message
-from typing import Any
+from typing import Optional
 
 from amavis_milter.checks.base import BaseCheck, CheckResult
 from amavis_milter.config import ActionConfig, AppConfig, GroupConfig, TriggerConfig
@@ -49,6 +50,7 @@ class RuleEngine:
         self._trigger_configs: dict[str, TriggerConfig] = {}
         self._group_configs: dict[str, GroupConfig] = {}
         self._register_triggers()
+        self._prefix_strip_re: Optional[re.Pattern[str]] = self._build_prefix_strip_re()
 
     # ---- registration ----------------------------------------------------
 
@@ -154,3 +156,82 @@ class RuleEngine:
         """Build a combined subject prefix from all fired actions that have one."""
         prefixes = [a.action.subject_prefix for a in actions if a.action.subject_prefix]
         return " ".join(prefixes)
+
+    # ---- subject prefix deduplication -----------------------------------
+
+    @property
+    def known_prefixes(self) -> list[str]:
+        """
+        Return the unique, non-empty ``subject_prefix`` values declared by
+        any trigger or group in the configuration (regardless of whether the
+        trigger/group is enabled).
+
+        These are the prefixes the milter itself may prepend to a Subject.
+        They are used to detect and strip pre-existing prefixes so that a
+        re-processed message does not accumulate duplicates such as
+        ``[FAKE-REPLY] [FAKE-REPLY] Hello``.
+        """
+        prefixes: set[str] = set()
+        for tc in self.config.triggers:
+            if tc.action.subject_prefix:
+                prefixes.add(tc.action.subject_prefix)
+        for gc in self.config.groups:
+            if gc.action.subject_prefix:
+                prefixes.add(gc.action.subject_prefix)
+        # Sort by length, descending, so that a shorter prefix cannot match
+        # inside a longer one when both share a common start.
+        return sorted(prefixes, key=len, reverse=True)
+
+    def _build_prefix_strip_re(self) -> Optional[re.Pattern[str]]:
+        """
+        Compile a regex that matches a single known prefix at the start of a
+        Subject, together with any surrounding whitespace.
+
+        Returns ``None`` when no prefixes are configured (nothing to strip).
+        """
+        prefixes = self.known_prefixes
+        if not prefixes:
+            return None
+        escaped = [re.escape(p) for p in prefixes]
+        # Anchored at start; consumes leading whitespace, the prefix, and the
+        # trailing whitespace so consecutive prefixes are fully cleared.
+        return re.compile(r"^\s*(?:" + "|".join(escaped) + r")\s*")
+
+    def has_known_prefixes(self) -> bool:
+        """Whether any subject prefix is configured (and thus strippable)."""
+        return self._prefix_strip_re is not None
+
+    def strip_known_prefixes(self, subject: str) -> str:
+        """
+        Remove every known milter prefix that leads *subject*.
+        Prefixes are stripped repeatedly from the front of the string so that
+        sequences like ``[FAKE-REPLY] [YOUNG-DOMAIN] Hello`` collapse to
+        ``Hello``. Behaviour is controlled by the
+        ``milter.strip_existing_prefixes`` configuration flag: when disabled
+        the subject is returned unchanged.
+
+        Parameters
+        ----------
+        subject : str
+            The decoded Subject header value.
+
+        Returns
+        -------
+        str
+            The subject with leading known prefixes (and their surrounding
+            whitespace) removed.
+        """
+        if not self.config.milter.strip_existing_prefixes:
+            return subject
+        pattern = self._prefix_strip_re
+        if not subject or pattern is None:
+            return subject
+        # Repeatedly remove one leading prefix until none remains. Each
+        # iteration strictly shortens the string (prefixes are non-empty), so
+        # the loop is guaranteed to terminate.
+        while True:
+            new_subject = pattern.sub("", subject, count=1)
+            if new_subject == subject:
+                break
+            subject = new_subject
+        return subject
