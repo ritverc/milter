@@ -270,11 +270,13 @@ def _create_milter_class() -> type:
               2. Increase spam score (via X-Spam-Score header)
               3. Optionally add subject prefix
 
-            When ``milter.strip_existing_prefixes`` is enabled (default), any
-            known subject prefixes that already lead the Subject are removed
-            before the new combined prefix is prepended. This keeps the
+            When ``milter.strip_existing_prefixes`` is enabled (default),
+            EVERY occurrence of the new (fired) subject prefix is removed from
+            the Subject — including ones hidden behind Re:/Fw: reply markers —
+            before the prefix is prepended exactly once. This keeps the
             Subject in sync with the current rule evaluation and prevents
-            duplicates such as ``[FAKE-REPLY] [FAKE-REPLY] Hello`` when a
+            duplicates such as
+            ``[LOOKALIKE] Re: [LOOKALIKE] Re: [LOOKALIKE] Re: Hello`` when a
             message is processed by the milter more than once.
             """
             if not self._fired_actions:
@@ -312,11 +314,15 @@ def _create_milter_class() -> type:
                 -1,
             )
 
-            # 3. Subject prefix
+            # 3. Subject prefix (simple global removal of the new prefix)
             prefix = engine.get_subject_prefix(self._fired_actions)
-            # Strip any pre-existing known prefixes so re-processing does not
-            # stack duplicates and the Subject reflects the current evaluation.
-            new_subject = engine.strip_known_prefixes(self._subject)
+            # Remove EVERY occurrence of the fired prefix(es) from the subject
+            # — including those shielded behind Re:/Fw: — so re-processing
+            # does not stack duplicates and the Subject reflects the current
+            # evaluation. The new prefix is then prepended exactly once.
+            new_subject = engine.strip_fired_prefixes(
+                self._subject, self._fired_actions
+            )
             subject_changed = new_subject != self._subject
 
             if prefix:

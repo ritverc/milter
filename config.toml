@@ -12,9 +12,10 @@
 #     spam_score_increase  : how much to add to the spam score
 #     subject_prefix       : optional prefix prepended to Subject
 #
-# NOTE: when [milter].strip_existing_prefixes is enabled (default), any
-# subject_prefix already present at the start of the Subject is removed
-# before the new prefix is added, so re-processed messages never accumulate
+# NOTE: when [milter].strip_existing_prefixes is enabled (default), EVERY
+# occurrence of the NEW (fired) subject_prefix is removed from the Subject
+# — including prefixes hidden behind Re:/Fw: reply markers — before the new
+# prefix is prepended exactly once, so re-processed messages never accumulate
 # duplicate prefixes.
 #
 # Triggers can be combined into groups with mode:
@@ -37,12 +38,13 @@ timeout = 300                     # per-connection timeout (seconds)
 pid_file = "/opt/zimbra/log/milter.pid"  # PID file path (set to "" to disable)
 # When a message is processed more than once (re-injection, forwarding back
 # through the milter, etc.) the subject_prefix values added by triggers/groups
-# would otherwise pile up, e.g. "[FAKE-REPLY] [FAKE-REPLY] Hello".
-# When enabled, every known subject_prefix declared by ANY trigger or group
-# (enabled or not) that already leads the Subject is stripped BEFORE the new
-# combined prefix is prepended, so the Subject always reflects the current
-# rule evaluation and never accumulates duplicates.
+# would otherwise pile up, e.g. "[LOOKALIKE] Re: [LOOKALIKE] Re: ... Hello".
+# When enabled, EVERY occurrence of the NEW (fired) subject prefix is removed
+# from the Subject — including prefixes hidden behind Re:/Fw: reply markers —
+# BEFORE the new prefix is prepended exactly once, so the Subject always
+# reflects the current rule evaluation and never accumulates duplicates.
 strip_existing_prefixes = true
+
 
 # ---------------------------------------------------------------------------
 # RDAP client settings
@@ -251,7 +253,8 @@ trusted_domains = [
     "ritverc.com",
     "ritverc.local",
     "ritverc.kz",
-    "ritverc.ru"
+    "ritverc.ru",
+    "360.yandex.ru"
 ]
 history_file        = "./domain_history.json"
 history_max_entries = 50000
