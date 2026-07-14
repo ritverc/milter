@@ -1,0 +1,320 @@
+# ============================================================================
+# amavis-milter configuration
+# ============================================================================
+#
+# Each trigger defines:
+#   type             : "domain_age" | "false_reply" | "fuzzy_domain"
+#   enabled          : bool
+#   params           : check-specific parameters (see below)
+#   action           : what to do when the trigger fires
+#     header_name          : X-header to add
+#     header_value         : value for the X-header
+#     spam_score_increase  : how much to add to the spam score
+#     subject_prefix       : optional prefix prepended to Subject
+#
+# Triggers can be combined into groups with mode:
+#   "all"      — all listed triggers must fire
+#   "any"      — at least one trigger must fire
+#   "majority" — more than half must fire
+#
+# Groups have their own action, applied IN ADDITION to individual trigger
+# actions when the group condition is met.
+# ============================================================================
+
+
+# ---------------------------------------------------------------------------
+# Milter daemon settings
+# ---------------------------------------------------------------------------
+[milter]
+socket = "inet:11334@127.0.0.1"   # listen address (inet / unix socket)
+name   = "amavis-milter"          # milter name reported to MTA
+timeout = 300                     # per-connection timeout (seconds)
+pid_file = "/opt/zimbra/log/milter.pid"  # PID file path (set to "" to disable)
+
+
+# ---------------------------------------------------------------------------
+# RDAP client settings
+# ---------------------------------------------------------------------------
+#
+# RDAP (Registration Data Access Protocol) replaces the legacy WHOIS
+# protocol. It returns structured JSON with reliable ``dates.created``
+# fields, works over HTTPS, and supports any TLD.
+#
+# who-dat.as93.net is a public RDAP lookup service that normalises
+# responses from all TLD registries into a consistent format.
+# You can replace it with any compatible RDAP proxy or a self-hosted
+# instance of https://github.com/niccolo-nicoli/who-dat
+#
+[rdap]
+service_url     = "https://who-dat.as93.net"   # RDAP lookup service URL
+timeout         = 10.0                          # per-query timeout (seconds)
+cache_ttl       = 86400                         # cache results for 24 hours
+cache_max_size  = 10000                         # max cached domains
+max_concurrent  = 10                            # max parallel RDAP requests
+
+
+# ---------------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------------
+[logging]
+level  = "INFO"                                              # DEBUG | INFO | WARNING | ERROR
+file   = ""                                                  # empty = stderr
+format = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+
+
+# ===========================================================================
+# TRIGGERS
+# ===========================================================================
+
+# --- Trigger 1: Domain Age -------------------------------------------------
+#
+# Checks the sender's domain creation date via WHOIS.
+# Fires when the domain is younger than max_age_days.
+#
+# Parameters:
+#   max_age_days     : int   — maximum age in days to consider suspicious
+#   trusted_domains  : list  — domains exempt from this check
+#   tld_priorities   : dict  — TLD → extra score for suspicious TLDs
+#
+[triggers.domain_age_young]
+type    = "domain_age"
+enabled = true
+
+[triggers.domain_age_young.params]
+max_age_days    = 60
+trusted_domains = [
+    "gmail.com",
+    "yahoo.com",
+    "outlook.com",
+    "hotmail.com",
+    "mail.ru",
+    "yandex.ru",
+    "rambler.ru",
+    "protonmail.com",
+    "icloud.com",
+    "aol.com",
+    "ritverc.local",
+    "ritverc.kz",
+    "ritverc.com",
+    "ritverc.ru"
+]
+
+[triggers.domain_age_young.params.tld_priorities]
+# High-risk TLDs that get extra spam score when combined with young domain
+xyz   = 2.0
+top   = 2.0
+club  = 1.5
+online = 1.5
+site  = 1.5
+buzz  = 2.0
+icu   = 2.0
+click = 2.5
+
+[triggers.domain_age_young.action]
+header_name         = "X-Domain-Age-Young"
+header_value        = "YES"
+spam_score_increase = 3.0
+subject_prefix      = "[YOUNG-DOMAIN]"
+
+
+# --- Trigger 1b: Very young domain (stricter) -----------------------------
+#
+[triggers.domain_age_very_young]
+type    = "domain_age"
+enabled = true
+
+[triggers.domain_age_very_young.params]
+max_age_days    = 30
+trusted_domains = [
+    "gmail.com", "yahoo.com", "outlook.com", "hotmail.com",
+    "mail.ru", "yandex.ru", "rambler.ru", "protonmail.com",
+]
+
+[triggers.domain_age_very_young.action]
+header_name         = "X-Domain-Very-Young"
+header_value        = "CRITICAL"
+spam_score_increase = 5.0
+subject_prefix      = "[NEW-DOMAIN]"
+
+
+# --- Trigger 2: False Reply ------------------------------------------------
+#
+# Detects Re:/Fw: in Subject without valid In-Reply-To or References.
+#
+# Parameters:
+#   reply_prefixes    : list — prefixes considered as "reply" indicators
+#   check_in_reply_to : bool — verify In-Reply-To header
+#   check_references  : bool — verify References header
+#
+[triggers.false_reply]
+type    = "false_reply"
+enabled = true
+
+[triggers.false_reply.params]
+reply_prefixes    = ["Re:", "RE:", "Fw:", "FW:", "Fwd:", "Ответ:", "Пересылка:"]
+check_in_reply_to = true
+check_references  = true
+
+[triggers.false_reply.action]
+header_name         = "X-False-Reply"
+header_value        = "YES"
+spam_score_increase = 2.5
+subject_prefix      = "[FAKE-REPLY]"
+
+
+# --- Trigger 3: Fuzzy Domain Similarity ------------------------------------
+#
+# Compares sender's domain against known/seen domains.
+# Fires when similarity exceeds the threshold (potential typosquatting).
+#
+# Parameters:
+#   similarity_threshold : float — similarity ratio 0..1
+#   min_length           : int   — skip short domains
+#   known_domains        : list  — static list of legitimate domains
+#   trusted_domains      : list  — sender domains exempt from fuzzy matching
+#   same_tld_skip        : bool  — skip refs with same TLD as sender (reduces FP)
+#   history_file         : str   — path to JSON file with dynamic history
+#   history_max_entries  : int   — max entries in history file
+#
+[triggers.fuzzy_domain]
+type    = "fuzzy_domain"
+enabled = true
+
+[triggers.fuzzy_domain.params]
+similarity_threshold = 0.75
+min_length           = 4
+known_domains = [
+    # Major email providers
+    "gmail.com",
+    "yahoo.com",
+    "outlook.com",
+    "hotmail.com",
+    "mail.ru",
+    "yandex.ru",
+    "rambler.ru",
+    "protonmail.com",
+    "icloud.com",
+    # Common Russian services
+    "vk.com",
+    "avito.ru",
+    "ozon.ru",
+    "wildberries.ru",
+    "sberbank.ru",
+    "tinkoff.ru",
+    "vtb.ru",
+    "gazprombank.ru",
+    # Business platforms
+    "github.com",
+    "gitlab.com",
+    "microsoft.com",
+    "google.com",
+    "amazon.com",
+    "apple.com",
+    "paypal.com",
+    "stripe.com",
+    "linkedin.com",
+    "twitter.com",
+    "facebook.com",
+    "whatsapp.com",
+    "telegram.org",
+    # home domains
+    "ritverc.local",
+    "ritverc.kz",
+    "ritverc.com",
+    "ritverc.ru",
+]
+same_tld_skip        = false
+trusted_domains = [
+    # Legitimate domains that may look similar to each other
+    "gmail.com",
+    "yahoo.com",
+    "outlook.com",
+    "hotmail.com",
+    "mail.ru",
+    "yandex.ru",
+    "rambler.ru",
+    "protonmail.com",
+    "icloud.com",
+    "aol.com",
+    "ritverc.com",
+    "ritverc.local",
+    "ritverc.kz",
+    "ritverc.ru"
+]
+history_file        = "./domain_history.json"
+history_max_entries = 50000
+
+[triggers.fuzzy_domain.action]
+header_name         = "X-Fuzzy-Domain"
+header_value        = "SUSPICIOUS"
+spam_score_increase = 3.5
+subject_prefix      = "[LOOKALIKE]"
+
+
+# ===========================================================================
+# GROUPS (compound rules)
+# ===========================================================================
+
+# --- Group 1: Young domain + False reply → high confidence spam -----------
+[groups.young_domain_fake_reply]
+enabled  = true
+mode     = "all"
+triggers = ["domain_age_young", "false_reply"]
+
+[groups.young_domain_fake_reply.action]
+header_name         = "X-Spam-HighConfidence"
+header_value        = "YOUNG-DOMAIN+FAKE-REPLY"
+spam_score_increase = 5.0
+subject_prefix      = "[SPAM-HC]"
+
+
+# --- Group 2: Fuzzy domain + False reply → phishing attempt ---------------
+[groups.phishing_attempt]
+enabled  = true
+mode     = "all"
+triggers = ["fuzzy_domain", "false_reply"]
+
+[groups.phishing_attempt.action]
+header_name         = "X-Phishing-Suspect"
+header_value        = "LOOKALIKE+FAKE-REPLY"
+spam_score_increase = 6.0
+subject_prefix      = "[PHISHING]"
+
+
+# --- Group 3: Any trigger fires → general suspicious ----------------------
+[groups.any_suspicious]
+enabled  = true
+mode     = "any"
+triggers = ["domain_age_young", "false_reply", "fuzzy_domain"]
+
+[groups.any_suspicious.action]
+header_name         = "X-Suspicious"
+header_value        = "YES"
+spam_score_increase = 1.0
+subject_prefix      = ""
+
+
+# --- Group 4: Majority of triggers → very high confidence -----------------
+[groups.majority_suspicious]
+enabled  = true
+mode     = "majority"
+triggers = ["domain_age_young", "false_reply", "fuzzy_domain"]
+
+[groups.majority_suspicious.action]
+header_name         = "X-Spam-VeryHighConfidence"
+header_value        = "MAJORITY-RULE"
+spam_score_increase = 8.0
+subject_prefix      = "[SPAM-VHC]"
+
+
+# --- Group 5: Very young + Fuzzy + False reply → critical -----------------
+[groups.critical_spam]
+enabled  = true
+mode     = "all"
+triggers = ["domain_age_very_young", "fuzzy_domain", "false_reply"]
+
+[groups.critical_spam.action]
+header_name         = "X-Spam-Critical"
+header_value        = "CRITICAL-MULTI"
+spam_score_increase = 15.0
+subject_prefix      = "[CRITICAL-SPAM]"
