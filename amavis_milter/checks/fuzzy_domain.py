@@ -63,11 +63,28 @@ class FuzzyDomainCheck(BaseCheck):
     Parameters (from TOML ``params``):
         similarity_threshold : float — minimum similarity to trigger (0..1, default 0.75).
         min_length           : int   — minimum domain length to compare (default 4).
-        known_domains        : list  — static list of known legitimate domains.
-        trusted_domains      : list  — domains exempt from fuzzy matching (sender domain whitelist).
-        same_tld_skip        : bool  — skip comparison if sender TLD matches reference TLD (default False).
-        history_file         : str   — path to JSON file with dynamically collected domains.
+        known_domains        : list  — reference targets: legitimate domains compared
+                                       AGAINST the sender's domain. NOT an exemption
+                                       list; it is the set of "victims" whose
+                                       typosquats we want to catch.
+        trusted_domains      : list  — sender-domain whitelist: if the sender's
+                                       domain itself is here, the check is skipped
+                                       entirely (never flagged), even if a similar
+                                       typosquat is already in history.
+        same_tld_skip        : bool  — skip references whose TLD matches the
+                                       sender's TLD (default False, reduces FP).
+        history_file         : str   — path to JSON file with dynamically collected
+                                       domains (only NON-flagged senders are recorded;
+                                       see below).
         history_max_entries  : int   — max entries to keep in history (default 50000).
+
+    History semantics
+    -----------------
+    The sender's domain is appended to ``history`` ONLY when the check does
+    NOT fire. A domain flagged as a lookalike is intentionally excluded, so
+    that detected typosquats never become references for future comparisons
+    (which would pollute the reference set and could mask or cascade into
+    future detections).
     """
 
     check_type = "fuzzy_domain"
@@ -97,9 +114,30 @@ class FuzzyDomainCheck(BaseCheck):
         headers: dict[str, list[str]],
         message: Message,
     ) -> CheckResult:
-        # Record the domain in history
-        self._record_domain(sender_domain)
+        # Run the actual similarity evaluation, then decide whether the
+        # sender domain should be remembered in history.
+        result = self._evaluate(sender, sender_domain, subject, headers, message)
 
+        # Record the sender domain in history ONLY when the similarity
+        # trigger did NOT fire. A domain flagged as a lookalike must never
+        # become a reference for future comparisons — otherwise a detected
+        # typosquat would pollute the reference set and could mask or
+        # cascade into future detections (e.g. once "gmai.com" is recorded,
+        # the legitimate "gmail.com" would start matching it and get
+        # falsely flagged).
+        if not result.triggered:
+            self._record_domain(sender_domain)
+
+        return result
+
+    def _evaluate(
+        self,
+        sender: str,
+        sender_domain: str,
+        subject: str,
+        headers: dict[str, list[str]],
+        message: Message,
+    ) -> CheckResult:
         # Skip very short domains — too many false positives
         if len(sender_domain) < self.min_length:
             return CheckResult(

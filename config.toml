@@ -183,12 +183,35 @@ subject_prefix      = "[FAKE-REPLY]"
 #
 # Parameters:
 #   similarity_threshold : float — similarity ratio 0..1
-#   min_length           : int   — skip short domains
-#   known_domains        : list  — static list of legitimate domains
-#   trusted_domains      : list  — sender domains exempt from fuzzy matching
-#   same_tld_skip        : bool  — skip refs with same TLD as sender (reduces FP)
-#   history_file         : str   — path to JSON file with dynamic history
+#   min_length           : int   — skip short sender domains
+#   known_domains        : list  — REFERENCE TARGETS: legitimate "victim" domains
+#                                  compared AGAINST the sender. NOT an exemption
+#                                  list — it is the set of domains whose
+#                                  typosquats we want to catch (e.g. put
+#                                  "gmail.com" here to flag "gmai.com").
+#   trusted_domains      : list  — SENDER-DOMAIN WHITELIST: if the sender's own
+#                                  domain is listed here, the check is skipped
+#                                  entirely (never flagged) — even if a similar
+#                                  typosquat is already in history. Put ONLY the
+#                                  legitimate domain here (e.g. "gmail.com"),
+#                                  NEVER the typosquat.
+#   same_tld_skip        : bool  — skip references whose TLD equals the sender's
+#                                  TLD (reduces false positives like mail.ru↔yandex.ru)
+#   history_file         : str   — path to JSON file with dynamically collected
+#                                  domains. Only NON-flagged sender domains are
+#                                  recorded; a domain that triggers this check is
+#                                  NOT added, so detected typosquats never become
+#                                  references for future comparisons.
 #   history_max_entries  : int   — max entries in history file
+#
+# known_domains vs trusted_domains:
+#   - known_domains   = "what we compare the sender AGAINST" (the good/victim list)
+#   - trusted_domains = "whose sender we SKIP checking"      (a sender whitelist)
+#   A legitimate domain (e.g. gmail.com) is typically listed in BOTH: in
+#   known_domains (so its typosquats are caught) AND in trusted_domains (so
+#   gmail.com itself is never falsely flagged when it sends mail). A typosquat
+#   domain (e.g. gmai.com) goes in NEITHER — it is detected by similarity and,
+#   per the history rule above, is never recorded in history either.
 #
 [triggers.fuzzy_domain]
 type    = "fuzzy_domain"
@@ -231,15 +254,70 @@ known_domains = [
     "facebook.com",
     "whatsapp.com",
     "telegram.org",
+    "com.ru",
+    "co.jp",
+    "yougile.com",
+    "yougile.ru",
+    "aeroflot.ru",
+    "flot.aero",
+    "komus.net",
+    "spb.ru",
     # home domains
     "ritverc.local",
     "ritverc.kz",
     "ritverc.com",
     "ritverc.ru",
+    # contractors
+    "slb.com",
+    "slb.ru",
+    "niti.ru",
+    "rusgeology.ru", 
+    "vniiftri.ru",
+    "esentehealthcare.com",
+    "smolate.ru",
+    "nntc.pro", 
+    "serlnk.ru",
+    "dvzz.ru",
+    "mintrud.gov.ru",
+    "kontur.ru", 
+    "amplituda.ru", 
+    "rosvodokanal.ru", 
+    "inm-rosatom.ru", 
+    "izotop-ekb.ru",
+    "radon.ru",
+    "LUKOIL.COM",
+    "niiefa.spb.su", 
+    "ro.ru",
+    "freshpack.group", 
+    "nwatom.ru", 
+    "asms.ru", 
+    "tmk.tools",
+    "eurochem.ru", 
+    "ctm.ru",
+    "geo-tc.ru",
+    "rosstat.gov.ru", 
+    "bumaga-vrn.ru",
+    "zaokvant.ru", 
+    "mil.ru",
+    "levelup-ufa.ru", 
+    "udn.rosneft.ru", 
+    "alfabank.ru", 
+    "rip74.ru", 
+    "atomdoc.ru", 
+    "mephi.ru", 
+    "rosatom.ru", 
+    "tuvyb.gov.spb.ru", 
+    "ppgk.ru", 
+    "sniip.ru", 
+
 ]
 same_tld_skip        = false
+# Sender-domain whitelist: mail FROM any of these domains is never flagged by
+# the fuzzy check. List legitimate domains that send mail and might otherwise
+# be falsely matched against their own typosquats in history. Do NOT put
+# typosquat/suspicious domains here.
 trusted_domains = [
-    # Legitimate domains that may look similar to each other
+    # Legitimate sender domains (also appear in known_domains above on purpose)
     "gmail.com",
     "yahoo.com",
     "outlook.com",
@@ -250,10 +328,6 @@ trusted_domains = [
     "protonmail.com",
     "icloud.com",
     "aol.com",
-    "ritverc.com",
-    "ritverc.local",
-    "ritverc.kz",
-    "ritverc.ru",
     "360.yandex.ru"
 ]
 history_file        = "./domain_history.json"
