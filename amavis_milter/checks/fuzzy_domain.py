@@ -136,8 +136,6 @@ class FuzzyDomainCheck(BaseCheck):
         trigger a false lookalike alert.
         """
         sd = sender_domain.lower()
-#        logger.debug("Checking sender domain ", sd, " against list of")
-#        logger.debug("trusted domains:", self.trusted_domains)
         if sd in self.trusted_domains:
             return True
         # Subdomain match: any deeper name ending with ".<trusted>".
@@ -160,16 +158,24 @@ class FuzzyDomainCheck(BaseCheck):
         result = self._evaluate(sender, sender_domain, subject, headers, message)
 
         # Record the sender domain in history ONLY when the similarity
-        # trigger did NOT fire. A domain flagged as a lookalike must never
-        # become a reference for future comparisons — otherwise a detected
-        # typosquat would pollute the reference set and could mask or
-        # cascade into future detections (e.g. once "gmai.com" is recorded,
-        # the legitimate "gmail.com" would start matching it and get
-        # falsely flagged).
-        if not result.triggered:
+        # trigger did NOT fire AND the message has NOT already been flagged
+        # as spam by KSMG (X-KSMG-AntiSpam-Status: spam).  A domain from
+        # a message already classified as spam must never become a
+        # reference for future comparisons — otherwise a known-spam sender
+        # could pollute the reference set and mask future lookalike
+        # detections.
+        if not result.triggered and not self._is_ksmg_spam(headers):
             self._record_domain(sender_domain)
+        else:
+            logger.info("Message has a SPAM flag, skipping addition to the known list.")
 
         return result
+
+    @staticmethod
+    def _is_ksmg_spam(headers: dict[str, list[str]]) -> bool:
+        """Return True if X-KSMG-AntiSpam-Status header equals 'spam'."""
+        values = headers.get("x-ksmg-antispam-status", [])
+        return any(v.strip().lower() == "spam" for v in values)
 
     def _evaluate(
         self,
@@ -198,18 +204,23 @@ class FuzzyDomainCheck(BaseCheck):
 
         # Build the reference set: known domains + history (excluding self)
         references = set(self.known_domains) | self._history
-        references.discard(sender_domain.lower())
 
         if not references:
             return CheckResult(
                 triggered=False,
                 reason="No reference domains available for comparison",
             )
+
+        # Skip sender domains that exactly match a known domain.  There is
+        # no point running a similarity check against a domain that is
+        # itself a reference — a legitimate domain always resembles itself.
         if sender_domain in references:
             return CheckResult(
                 triggered=False,
                 reason="Sender domain is in known list",
             )
+
+#        references.discard(sender_domain.lower())
 
         # Find the best match
         best_domain = ""

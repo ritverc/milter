@@ -79,7 +79,7 @@ def _write_pid_file(pid_file: str) -> None:
     try:
         path.write_text(f"{os.getpid()}\n", encoding="utf-8")
         _pid_file_path = pid_file
-        logger.info("PID %d written to %s", os.getpid(), pid_file)
+        logger.debug("PID %d written to %s", os.getpid(), pid_file)
     except OSError as exc:
         logger.error("Could not write PID file %s: %s", pid_file, exc)
         # Non-fatal — the milter can still operate without a PID file
@@ -175,6 +175,10 @@ def _create_milter_class() -> type:
 
         # Class-level engine — shared across all connections.
         _engine: Optional[RuleEngine] = None
+
+        def log(self, *msg: Any) -> None:
+            """Suppress pymilter's default console output (connect, rcpt, etc.)."""
+            pass
 
         def __init__(self) -> None:  # noqa: D107
             self._sender: str = ""
