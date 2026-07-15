@@ -110,6 +110,12 @@ class MilterConfig:
     # combined prefix is prepended. Prevents duplicate prefixes piling up when
     # a message is re-processed by the milter.
     strip_existing_prefixes: bool = True
+    # Spam flag: when the total spam score increase from all fired triggers
+    # and groups reaches this threshold, an additional header is added to
+    # the message (e.g. X-Spam-Status: spam).
+    spam_threshold: float = 5.0
+    spam_flag_header: str = "X-Spam-Status"
+    spam_flag_value: str = "spam"
 
 
 @dataclass
@@ -182,6 +188,9 @@ def load_config(path: str | Path) -> AppConfig:
         timeout=raw_milter.get("timeout", 300),
         pid_file=raw_milter.get("pid_file", "/opt/zimbra/log/milter.pid"),
         strip_existing_prefixes=bool(raw_milter.get("strip_existing_prefixes", True)),
+        spam_threshold=float(raw_milter.get("spam_threshold", 5.0)),
+        spam_flag_header=raw_milter.get("spam_flag_header", "X-Spam-Status"),
+        spam_flag_value=raw_milter.get("spam_flag_value", "spam"),
     )
 
     # --- rdap section ---

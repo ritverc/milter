@@ -318,6 +318,16 @@ def _create_milter_class() -> type:
                 -1,
             )
 
+            # 2b. Spam flag header — when total milter score exceeds threshold
+            cfg = engine.config.milter
+            if total_score >= cfg.spam_threshold:
+                self.addheader(cfg.spam_flag_header, cfg.spam_flag_value, -1)
+                logger.info(
+                    "Spam threshold reached (%.1f >= %.1f), added %s: %s",
+                    total_score, cfg.spam_threshold,
+                    cfg.spam_flag_header, cfg.spam_flag_value,
+                )
+
             # 3. Subject prefix (simple global removal of the new prefix)
             prefix = engine.get_subject_prefix(self._fired_actions)
             # Remove EVERY occurrence of the fired prefix(es) from the subject
