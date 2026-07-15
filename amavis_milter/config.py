@@ -124,7 +124,7 @@ class LoggingConfig:
 
     level: str = "INFO"
     file: str = ""  # empty → stderr
-    format: str = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    format: str = "%(asctime)s [%(levelname)s] [%(message_id)s] %(name)s: %(message)s"
 
 
 @dataclass

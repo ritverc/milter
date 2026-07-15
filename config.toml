@@ -80,7 +80,7 @@ max_concurrent  = 10                            # max parallel RDAP requests
 [logging]
 level  = "INFO"                                              # DEBUG | INFO | WARNING | ERROR
 file   = ""                                                  # empty = stderr
-format = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+format = "%(asctime)s [%(levelname)s] [%(message_id)s] %(name)s: %(message)s"
 
 
 # ===========================================================================

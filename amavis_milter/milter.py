@@ -16,6 +16,8 @@ import os
 import re
 import signal
 import sys
+import threading
+import uuid
 from email.header import decode_header
 from pathlib import Path
 from typing import Any, Optional
@@ -29,6 +31,32 @@ from .engine import FiredAction, RuleEngine
 from .rdap_client import RdapClient
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Per-message unique ID  (thread-local + logging filter)
+# ---------------------------------------------------------------------------
+
+_thread_local = threading.local()
+
+
+class _MessageIdFilter(logging.Filter):
+    """Inject ``message_id`` from thread-local storage into every log record.
+
+    This allows the log format string to reference ``%(message_id)s``
+    without any changes to individual ``logger.*()`` calls across the
+    codebase.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        mid = getattr(_thread_local, "message_id", "")
+        record.message_id = mid   # type: ignore[attr-defined]
+        return True
+
+
+def _new_message_id() -> str:
+    """Generate a short unique message identifier (first 8 hex chars of UUID4)."""
+    return uuid.uuid4().hex[:8]
 
 
 # ---------------------------------------------------------------------------
@@ -187,6 +215,9 @@ def _create_milter_class() -> type:
             self._headers: dict[str, list[str]] = {}
             self._fired_actions: list[FiredAction] = []
             self._raw_headers: list[tuple[str, str]] = []
+            # Assign a unique ID for this connection so all log entries
+            # belonging to the same message can be traced.
+            _thread_local.message_id = _new_message_id()
 
         # ---- Milter callbacks --------------------------------------------
 
@@ -356,12 +387,14 @@ def _create_milter_class() -> type:
             return Milter.CONTINUE
 
         def close(self) -> int:
-            """Connection cleanup."""
+            """Connection cleanup -- clear per-message context."""
+            _thread_local.message_id = ""
             return Milter.CONTINUE
 
         def abort(self) -> int:
             """Milter abort — reset state."""
             self._fired_actions.clear()
+            _thread_local.message_id = ""
             return Milter.CONTINUE
 
     return AmavisMilter
@@ -401,14 +434,17 @@ def _build_engine(config: AppConfig) -> RuleEngine:
 
 def _setup_logging(config: AppConfig) -> None:
     """Configure logging from AppConfig."""
+    msg_filter = _MessageIdFilter()
     handlers: list[logging.Handler] = []
 
     if config.logging.file:
-        handlers.append(
-            logging.FileHandler(config.logging.file, encoding="utf-8")
-        )
+        fh = logging.FileHandler(config.logging.file, encoding="utf-8")
+        fh.addFilter(msg_filter)
+        handlers.append(fh)
     else:
-        handlers.append(logging.StreamHandler(sys.stderr))
+        sh = logging.StreamHandler(sys.stderr)
+        sh.addFilter(msg_filter)
+        handlers.append(sh)
 
     logging.basicConfig(
         level=getattr(logging, config.logging.level.upper(), logging.INFO),
