@@ -70,7 +70,10 @@ class FuzzyDomainCheck(BaseCheck):
         trusted_domains      : list  — sender-domain whitelist: if the sender's
                                        domain itself is here, the check is skipped
                                        entirely (never flagged), even if a similar
-                                       typosquat is already in history.
+                                       typosquat is already in history. Subdomains
+                                       of a trusted domain are also trusted
+                                       (e.g. trusted "abcd.com" covers
+                                       "mail.abcd.com").
         same_tld_skip        : bool  — skip references whose TLD matches the
                                        sender's TLD (default False, reduces FP).
         history_file         : str   — path to JSON file with dynamically collected
@@ -93,8 +96,16 @@ class FuzzyDomainCheck(BaseCheck):
         super().__init__(name, params)
         self.similarity_threshold: float = float(self._param("similarity_threshold", 0.75))
         self.min_length: int = int(self._param("min_length", 4))
-        self.known_domains: list[str] = self._param("known_domains", [])
-        self.trusted_domains: set[str] = set(self._param("trusted_domains", []))
+        self.known_domains: list[str] = {
+            d.lower() for d in self._param("known_domains", [])
+        }
+        # Normalise trusted domains to lowercase once for fast, case-insensitive
+        # comparison (including subdomain matching — see _is_trusted).
+        self.trusted_domains: set[str] = {
+            d.lower() for d in self._param("trusted_domains", [])
+        }
+        logger.debug("Configured trusted domains: %s", self.trusted_domains)
+        logger.debug("Known domains: %s", self.known_domains)
         self.same_tld_skip: bool = self._param("same_tld_skip", False)
         self.history_file: str = self._param("history_file", "")
         self.history_max_entries: int = int(self._param("history_max_entries", 50000))
@@ -105,6 +116,36 @@ class FuzzyDomainCheck(BaseCheck):
             self._load_history()
 
     # ---- public API ------------------------------------------------------
+
+    def _is_trusted(self, sender_domain: str) -> bool:
+        """
+        Return True if *sender_domain* is trusted and must skip the fuzzy check.
+
+        A domain is trusted when it is EITHER:
+          - exactly listed in ``trusted_domains`` (case-insensitive), OR
+          - a subdomain of a listed trusted domain. For example, when
+            ``abcd.com`` is trusted, ``mail.abcd.com`` and
+            ``gateway.mail.abcd.com`` are trusted too — they belong to the
+            same organisation and must not be flagged as lookalikes of a
+            sibling domain (e.g. ``abcd.kz``).
+
+        The subdomain rule prevents false positives where an organisation
+        that legitimately owns both ``abcd.com`` and ``abcd.kz`` sends mail
+        from ``mail.abcd.com``: without this rule the SLD-based similarity
+        (which compares the ``abcd`` part) would match ``abcd.kz`` and
+        trigger a false lookalike alert.
+        """
+        sd = sender_domain.lower()
+#        logger.debug("Checking sender domain ", sd, " against list of")
+#        logger.debug("trusted domains:", self.trusted_domains)
+        if sd in self.trusted_domains:
+            return True
+        # Subdomain match: any deeper name ending with ".<trusted>".
+        # The leading dot guarantees "evilabcd.com" does NOT match "abcd.com".
+        for trusted in self.trusted_domains:
+            if sd.endswith("." + trusted):
+                return True
+        return False
 
     def check(
         self,
@@ -145,8 +186,10 @@ class FuzzyDomainCheck(BaseCheck):
                 reason=f"Domain '{sender_domain}' is too short for fuzzy analysis",
             )
 
-        # Skip trusted sender domains (legitimate domains that happen to look like others)
-        if sender_domain.lower() in {d.lower() for d in self.trusted_domains}:
+        # Skip trusted sender domains (exact match OR subdomain of a trusted
+        # domain — see _is_trusted). Legitimate domains and their subdomains
+        # must never be flagged as lookalikes of sibling/typosquat domains.
+        if self._is_trusted(sender_domain):
             return CheckResult(
                 triggered=False,
                 reason=f"Sender domain '{sender_domain}' is in trusted list",
@@ -161,6 +204,11 @@ class FuzzyDomainCheck(BaseCheck):
             return CheckResult(
                 triggered=False,
                 reason="No reference domains available for comparison",
+            )
+        if sender_domain in references:
+            return CheckResult(
+                triggered=False,
+                reason="Sender domain is in known list",
             )
 
         # Find the best match

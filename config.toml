@@ -110,7 +110,8 @@ trusted_domains = [
     "ritverc.local",
     "ritverc.kz",
     "ritverc.com",
-    "ritverc.ru"
+    "ritverc.ru",
+    "young.com",
 ]
 
 [triggers.domain_age_young.params.tld_priorities]
@@ -141,7 +142,7 @@ enabled = true
 max_age_days    = 30
 trusted_domains = [
     "gmail.com", "yahoo.com", "outlook.com", "hotmail.com",
-    "mail.ru", "yandex.ru", "rambler.ru", "protonmail.com",
+    "mail.ru", "yandex.ru", "rambler.ru", "protonmail.com", "very-young.com",
 ]
 
 [triggers.domain_age_very_young.action]
@@ -192,8 +193,10 @@ subject_prefix      = "[FAKE-REPLY]"
 #   trusted_domains      : list  — SENDER-DOMAIN WHITELIST: if the sender's own
 #                                  domain is listed here, the check is skipped
 #                                  entirely (never flagged) — even if a similar
-#                                  typosquat is already in history. Put ONLY the
-#                                  legitimate domain here (e.g. "gmail.com"),
+#                                  typosquat is already in history. Subdomains of
+#                                  a trusted domain are also trusted (e.g. trusted
+#                                  "abcd.com" covers "mail.abcd.com"). Put ONLY
+#                                  the legitimate domain here (e.g. "gmail.com"),
 #                                  NEVER the typosquat.
 #   same_tld_skip        : bool  — skip references whose TLD equals the sender's
 #                                  TLD (reduces false positives like mail.ru↔yandex.ru)
@@ -261,7 +264,6 @@ known_domains = [
     "aeroflot.ru",
     "flot.aero",
     "komus.net",
-    "spb.ru",
     # home domains
     "ritverc.local",
     "ritverc.kz",
@@ -278,7 +280,6 @@ known_domains = [
     "nntc.pro", 
     "serlnk.ru",
     "dvzz.ru",
-    "mintrud.gov.ru",
     "kontur.ru", 
     "amplituda.ru", 
     "rosvodokanal.ru", 
@@ -295,18 +296,18 @@ known_domains = [
     "eurochem.ru", 
     "ctm.ru",
     "geo-tc.ru",
-    "rosstat.gov.ru", 
     "bumaga-vrn.ru",
     "zaokvant.ru", 
     "mil.ru",
     "levelup-ufa.ru", 
-    "udn.rosneft.ru", 
+    "rosneft.ru", 
     "alfabank.ru", 
     "rip74.ru", 
     "atomdoc.ru", 
     "mephi.ru", 
     "rosatom.ru", 
-    "tuvyb.gov.spb.ru", 
+    "gov.spb.ru",
+    "gov.ru",
     "ppgk.ru", 
     "sniip.ru", 
 
@@ -328,7 +329,18 @@ trusted_domains = [
     "protonmail.com",
     "icloud.com",
     "aol.com",
-    "360.yandex.ru"
+    "360.yandex.ru",
+    "ritverc.local",
+    "ritverc.kz",
+    "ritverc.com",
+    "ritverc.ru",
+    "fuzzy.com",
+    "gov.ru",
+    "gov.spb.ru",
+    "apm.ru",
+    "irmatom.ru",
+    "niirg.ru",
+    "niiar.ru",
 ]
 history_file        = "./domain_history.json"
 history_max_entries = 50000
@@ -338,7 +350,7 @@ header_name         = "X-Fuzzy-Domain"
 header_value        = "SUSPICIOUS"
 spam_score_increase = 3.5
 subject_prefix      = "[LOOKALIKE]"
-
+#subject_prefix = ""
 
 # ===========================================================================
 # GROUPS (compound rules)
